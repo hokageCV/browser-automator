@@ -1,0 +1,19 @@
+{
+  "name": "browser-automator",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "exe": "node --env-file=.env"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.4.1",
+  "dependencies": {
+    "@openai/agents": "^0.0.17",
+    "playwright": "^1.55.0",
+    "zod": "3"
+  }
+}
