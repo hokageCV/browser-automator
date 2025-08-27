@@ -12,10 +12,19 @@ const browser = await chromium.launch({
 
 let page = undefined;
 
-// const takeScreenShot = tool({
-//   name: 'take_screenshot',
-//   // Return base64 image
-// });
+const takeScreenShot = tool({
+  name: 'take_screenshot',
+  description: 'take screenshot of existing page, and send a base64 image',
+  parameters: z.object({}),
+  async execute() {
+    const base64Image = await page.screenshot({
+      encoding: 'base64',
+      path: `${Date.now()}.png`,
+    });
+
+    return base64Image;
+  }
+});
 
 const openBrowser = tool({
   name: 'open_browser',
@@ -47,9 +56,27 @@ const waiter = tool({
   }
 });
 
-// const openURL = tool({
-//   name: 'open_url',
-// });
+const goToAddressBar = tool({
+  name: 'go_to_address_bar',
+  description: 'go to address bar',
+  parameters: z.object({}),
+  async execute() {
+    await page.keyboard.press('Control+K');
+  }
+})
+
+const openUrl = tool({
+  name: 'open_url',
+  description: 'open given url',
+  parameters: z.object({
+    url: z.string(),
+  }),
+  async execute({ url }) {
+    if (!page) throw new Error("No browser page open. Call 'open_browser' first.")
+    await page.goto(url);
+    return `Navigated to ${url}`;
+  }
+});
 
 // const clickOnScreen = tool({
 //   name: 'click_screen',
@@ -76,17 +103,28 @@ const websiteAutomationAgent = new Agent({
   model: process.env.MODEL,
   instructions: `
   You are a browser automation agent. You work on finishing the given task using available tools.
-
   `,
-  tools: [openBrowser, closeBrowser, waiter ]
+
+  tools: [
+    openBrowser, closeBrowser, waiter, takeScreenShot,
+    goToAddressBar, openUrl,
+  ]
 });
 
 async function main() {
   const user_query = `
-    Open broser instance, stay for 2 seconds and close the instance.
+    i want to go to site https://ui.chaicode.com/auth-sada/signup  .
+    wait for 15s, then close the browser.
   `;
 
-  await run(websiteAutomationAgent, user_query)
+  const screenshot_instructions = `
+    Rules:
+    - Always call the 'take_screenshot' tool after each step to see what is happening on the screen.
+    - After taking screenshot, plan the next action what needs to be done.
+  `
+
+  const result = await run(websiteAutomationAgent, user_query)
+  // console.log('DBG:', result.history);
 }
 
 main()
