@@ -51,6 +51,7 @@ const waiter = tool({
   description: 'wait for N seconds',
   parameters: z.object({ seconds: z.number() }),
   async execute({ seconds }) {
+    if (!page) throw new Error("No browser page open. Call 'open_browser' first.")
     await page.waitForTimeout(seconds * 1000);
     return `Waited ${seconds} seconds`;
   }
@@ -92,9 +93,21 @@ const openUrl = tool({
 //   },
 // });
 
-// const sendKeys = tool({
-//   name: 'send_keys',
-// });
+const typeText = tool({
+  name: 'type_text',
+  description: 'Type text into a given selector, character by character',
+  parameters: z.object({
+    selector: z.string(),
+    text: z.string(),
+  }),
+  async execute({ selector, text }) {
+    if (!page) throw new Error("No browser page open. Call 'open_browser' first.")
+    const delay = 100
+    await page.type(selector, text, { delay });
+    return `Typed "${text}" into ${selector}`;
+  }
+});
+
 
 // Double Click, Scroll
 
@@ -107,14 +120,19 @@ const websiteAutomationAgent = new Agent({
 
   tools: [
     openBrowser, closeBrowser, waiter, takeScreenShot,
-    goToAddressBar, openUrl,
+    goToAddressBar, openUrl, typeText,
   ]
 });
 
 async function main() {
   const user_query = `
+    details:
+    - name: Levi Ackerman
+    - email: levi@scouts.aot
+    - password: bringMeZeke
+
     i want to go to site https://ui.chaicode.com/auth-sada/signup  .
-    wait for 15s, then close the browser.
+    then type the above details in appropriate input boxes for name, email & password. you can search the inputs via their id attributes. after filling all, wait for 10 seconds, finally close the browser.
   `;
 
   const screenshot_instructions = `
@@ -124,7 +142,7 @@ async function main() {
   `
 
   const result = await run(websiteAutomationAgent, user_query)
-  // console.log('DBG:', result.history);
+  console.log('DBG:', result.history);
 }
 
 main()
