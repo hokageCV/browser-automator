@@ -63,15 +63,6 @@ const waiter = tool({
   }
 });
 
-const goToAddressBar = tool({
-  name: 'go_to_address_bar',
-  description: 'go to address bar',
-  parameters: z.object({}),
-  async execute() {
-    await page.keyboard.press('Control+K');
-  }
-})
-
 const openUrl = tool({
   name: 'open_url',
   description: 'open given url',
@@ -86,23 +77,9 @@ const openUrl = tool({
   }
 });
 
-// const clickOnScreen = tool({
-//   name: 'click_screen',
-//   description: 'Clicks on the screen with specified co-ordinates',
-//   parameters: z.object({
-//     x: z.number().describe('x axis on the screen where we need to click'),
-//     y: z.number().describe('Y axis on the screen where we need to click'),
-//   }),
-//   async execute(input) {
-//     input.x;
-//     input.y;
-//     page.mouse.click(input.x, input.y);
-//   },
-// });
-
 const typeText = tool({
   name: 'type_text',
-  description: 'Type text into a given selector, character by character',
+  description: 'Type text into a given selector, character by character. waiter tool must be called after this one.',
   parameters: z.object({
     selector: z.string(),
     text: z.string(),
@@ -110,7 +87,7 @@ const typeText = tool({
   async execute({ selector, text }) {
     if (!page) throw new Error("No browser page open. Call 'open_browser' first.")
     console.log(`Typing ${text} into ${selector}.`);
-    const delay = 100
+    const delay = 80
     await page.type(selector, text, { delay });
     return `Typed "${text}" into ${selector}`;
   }
@@ -134,9 +111,50 @@ const clickByText = tool({
   }
 });
 
+const discoverElements = tool({
+  name: 'discover_form_elements',
+  description: 'Discover input and button elements inside <form>, with their labels and best selectors',
+  parameters: z.object({}),
+  async execute({}) {
+    if (!page) throw new Error("No page is open. Call open_browser first.");
+    const limit = 50
 
+    console.log("Parsing page's elements.");
+    const elements = await page.$$eval(
+      'form input, form button, form textarea, form select',
+      nodes =>
+        nodes.map(n => {
+          const label =
+            n.getAttribute('id') ||
+            n.getAttribute('name') ||
+            n.getAttribute('placeholder') ||
+            n.getAttribute('aria-label') ||
+            n.innerText?.trim() ||
+            'unnamed';
 
-// Double Click, Scroll
+          let selector = null;
+          if (n.id) {
+            selector = `#${n.id}`;
+          } else if (n.getAttribute('name')) {
+            selector = `[name="${n.getAttribute('name')}"]`;
+          } else if (n.getAttribute('placeholder')) {
+            selector = `[placeholder="${n.getAttribute('placeholder')}"]`;
+          } else if (n.innerText?.trim()) {
+            selector = `text=${n.innerText.trim().slice(0, 30)}`;
+          }
+
+          return {
+            tag: n.tagName.toLowerCase(),
+            type: n.getAttribute('type') || 'unknown',
+            label,
+            selector,
+          };
+        })
+    );
+
+    return JSON.stringify(elements.slice(0, limit), null, 2);
+  }
+});
 
 const websiteAutomationAgent = new Agent({
   name: 'WebSite Automation Agent',
@@ -145,36 +163,32 @@ const websiteAutomationAgent = new Agent({
   You are a browser automation agent. You will be given a task by user. You have to finish the given task using available tools. Break down the tasks into actionable steps. Retry until you achieve the given task.
 
     Rules:
-    - wait for 4 seconds after execution of each tool
+    - use waiter tool between each tool call. wait for 3 seconds.
     - think of each next actionable step carefully. no wasted actions.
     - for navigation, use elements present on screen.
-    - for any typing action, perform only when the element is visible on screen.
+    - once you reach target page, you can use parse the page to get the selectors.
     - once the task is achieved, close the browser.
+    - Never call tools in parallel.
+    - Always finish one tool call and wait for the result before planning the next.
   `,
 
   tools: [
     closeBrowser, waiter,
-    openUrl, typeText, clickByText,
+    openUrl, typeText, clickByText, discoverElements
   ]
 });
 
 async function main() {
   const user_query = `
-    details:
-    - first name: Levi
-      - id: firstName
-    - last name: Ackerman
-      - id: lastName
-    - email: levi@scouts.aot
-      - id: email
-    - password: bringMeZeke
-      - id: password
-      - id: confirmPassword
-    - 'Create Account' button, type submit
+    user_details:
+      - first name: Levi
+      - last name: Ackerman
+      - email: levi@scouts.aot
+      - password: bringMeZeke
 
     Go to site https://ui.chaicode.com .
     and then navigate to sign up page. There you will see a sign up form.
-    type the above details in appropriate input boxes of the form.
+    type the above details in appropriate input boxes of the form. do confirm the password if needed. then create account.
 
   `;
 
