@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 import { chromium } from 'playwright';
 
+let database = []
+
 const browser = await chromium.launch({
   headless: false,
   chromiumSandbox: true,
@@ -10,19 +12,20 @@ const browser = await chromium.launch({
   args: ['--disable-extensions', '--disable-file-system'],
 });
 
-let page = undefined;
+let page = await browser.newPage()
 
 const takeScreenShot = tool({
   name: 'take_screenshot',
-  description: 'take screenshot of existing page, and send a base64 image',
+  description: 'take screenshot of existing page, and send a base64 image. can be used to find location of selectors in screen.',
   parameters: z.object({}),
   async execute() {
+    if (!page) throw new Error("No browser page open. Call 'open_browser' first.")
+    console.log('Taking a screen shot');
     const base64Image = await page.screenshot({
       encoding: 'base64',
-      path: `${Date.now()}.png`,
     });
 
-    return base64Image;
+    return `Returned base64 image: ${base64Image} `;
   }
 });
 
@@ -31,6 +34,7 @@ const openBrowser = tool({
   description: 'open a browser instance.',
   parameters: z.object({}),
   async execute(){
+    console.log('Opening the browser page');
     page = await browser.newPage();
     return 'Browser opened';
    }
@@ -41,6 +45,7 @@ const closeBrowser = tool({
   description: 'closes the opened browser instance',
   parameters: z.object({}),
   async execute() {
+    console.log('Closing the browser');
     await browser.close();
     return 'Browser closed';
   }
@@ -52,6 +57,7 @@ const waiter = tool({
   parameters: z.object({ seconds: z.number() }),
   async execute({ seconds }) {
     if (!page) throw new Error("No browser page open. Call 'open_browser' first.")
+    console.log(`Waiting for ${seconds} seconds`);
     await page.waitForTimeout(seconds * 1000);
     return `Waited ${seconds} seconds`;
   }
@@ -74,6 +80,7 @@ const openUrl = tool({
   }),
   async execute({ url }) {
     if (!page) throw new Error("No browser page open. Call 'open_browser' first.")
+    console.log(`Navigating to ${url}.`);
     await page.goto(url);
     return `Navigated to ${url}`;
   }
@@ -102,11 +109,31 @@ const typeText = tool({
   }),
   async execute({ selector, text }) {
     if (!page) throw new Error("No browser page open. Call 'open_browser' first.")
+    console.log(`Typing ${text} into ${selector}.`);
     const delay = 100
     await page.type(selector, text, { delay });
     return `Typed "${text}" into ${selector}`;
   }
 });
+
+const clickByText = tool({
+  name: 'click_by_text',
+  description: 'Clicks an element by visible on-screen text.',
+  parameters: z.object({
+    text: z.string().describe('The visible text of the element to click'),
+  }),
+  async execute({ text }) {
+    if (!page) throw new Error("No page is open. Call open_browser first.");
+
+    const selector = `text=${text}`;
+    await page.waitForSelector(selector, { state: 'visible' });
+    console.log(`Clicking on element for ${text}`);
+    await page.click(selector);
+
+    return `Clicked element with text: "${text}"`;
+  }
+});
+
 
 
 // Double Click, Scroll
@@ -115,33 +142,50 @@ const websiteAutomationAgent = new Agent({
   name: 'WebSite Automation Agent',
   model: process.env.MODEL,
   instructions: `
-  You are a browser automation agent. You work on finishing the given task using available tools.
+  You are a browser automation agent. You will be given a task by user. You have to finish the given task using available tools. Break down the tasks into actionable steps. Retry until you achieve the given task.
+
+    Rules:
+    - wait for 4 seconds after execution of each tool
+    - think of each next actionable step carefully. no wasted actions.
+    - for navigation, use elements present on screen.
+    - for any typing action, perform only when the element is visible on screen.
+    - once the task is achieved, close the browser.
   `,
 
   tools: [
-    openBrowser, closeBrowser, waiter, takeScreenShot,
-    goToAddressBar, openUrl, typeText,
+    closeBrowser, waiter,
+    openUrl, typeText, clickByText,
   ]
 });
 
 async function main() {
   const user_query = `
     details:
-    - name: Levi Ackerman
+    - first name: Levi
+      - id: firstName
+    - last name: Ackerman
+      - id: lastName
     - email: levi@scouts.aot
+      - id: email
     - password: bringMeZeke
+      - id: password
+      - id: confirmPassword
+    - 'Create Account' button, type submit
 
-    i want to go to site https://ui.chaicode.com/auth-sada/signup  .
-    then type the above details in appropriate input boxes for name, email & password. you can search the inputs via their id attributes. after filling all, wait for 10 seconds, finally close the browser.
+    Go to site https://ui.chaicode.com .
+    and then navigate to sign up page. There you will see a sign up form.
+    type the above details in appropriate input boxes of the form.
+
   `;
 
-  const screenshot_instructions = `
-    Rules:
-    - Always call the 'take_screenshot' tool after each step to see what is happening on the screen.
-    - After taking screenshot, plan the next action what needs to be done.
-  `
 
-  const result = await run(websiteAutomationAgent, user_query)
+  const result = await run(
+    websiteAutomationAgent,
+    database.concat({ role: 'user', content: user_query }),
+    {
+      maxTurns: 20,
+    }
+  )
   console.log('DBG:', result.history);
 }
 
